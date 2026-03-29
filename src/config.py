@@ -414,42 +414,113 @@ class BootEntryManager:
     
     def detect_boot_entries(self) -> Dict[str, str]:
         """
-        Detecta todas las entradas de boot disponibles en grub.cfg.
+        Detecta todas las entradas de boot disponibles de múltiples fuentes.
+        
+        Busca en:
+        1. grub.cfg para entradas de menuentry
+        2. efibootmgr para entradas de firmware EFI
+        3. /etc/grub.d/ para identificar distros instaladas
         
         Returns:
             Dict con {nombre: indice}
         """
         entries = {}
+        idx = 0
         
+        # 1. Detectar desde grub.cfg
         try:
             with open(self.grub_cfg_path, 'r') as f:
                 content = f.read()
             
-            # Patrón más robusto para capturar menuentry
-            # Captura: menuentry "nombre" o menuentry 'nombre'
+            # Patrón para capturar menuentry
             pattern = r"menuentry\s+(?:['\"]([^'\"]+)['\"]|([^\{]+?)\()"
             
-            idx = 0
             for match in re.finditer(pattern, content):
-                # Capturar el texto del nombre (grupo 1 o 2)
                 entry_name = match.group(1) if match.group(1) else match.group(2)
                 entry_name = entry_name.strip() if entry_name else f"Entry {idx}"
                 
                 if entry_name and entry_name not in entries:
                     entries[entry_name] = idx
-                    Logger.debug(f"Boot entry detectado: {entry_name}")
+                    Logger.debug(f"Boot entry (grub.cfg): {entry_name}")
                     idx += 1
-            
-            self.boot_entries = list(entries.keys())
-            Logger.success(f"Se encontraron {len(entries)} entradas de boot")
-            return entries
-            
+                    
         except FileNotFoundError:
-            Logger.error(f"Archivo no encontrado: {self.grub_cfg_path}")
-            return {}
+            Logger.warning(f"grub.cfg no encontrado: {self.grub_cfg_path}")
         except Exception as e:
-            Logger.error(f"Error al detectar boot entries: {e}")
-            return {}
+            Logger.warning(f"Error leyendo grub.cfg: {e}")
+        
+        # 2. Detectar desde efibootmgr (para sistemas UEFI)
+        try:
+            result = subprocess.run(
+                ["efibootmgr"],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            
+            if result.returncode == 0:
+                for line in result.stdout.split('\n'):
+                    # Formato: "Boot0000* Fedora"
+                    if line.startswith('Boot') and '*' in line:
+                        parts = line.split('\t', 1)
+                        if len(parts) > 1:
+                            entry_name = parts[1].strip()
+                            # Evitar entradas duplicadas
+                            if entry_name and entry_name not in entries and 'Windows' not in entry_name:
+                                entries[entry_name] = idx
+                                Logger.debug(f"Boot entry (efibootmgr): {entry_name}")
+                                idx += 1
+                                
+        except FileNotFoundError:
+            Logger.debug("efibootmgr no disponible (no es sistema UEFI o no instalado)")
+        except subprocess.TimeoutExpired:
+            Logger.warning("Timeout al ejecutar efibootmgr")
+        except Exception as e:
+            Logger.debug(f"Error al detectar con efibootmgr: {e}")
+        
+        # 3. Detectar distros desde /etc/grub.d/
+        try:
+            grub_d_path = "/etc/grub.d"
+            if os.path.isdir(grub_d_path):
+                distro_patterns = {
+                    'Nobara': 'nobara',
+                    'Fedora': 'fedora',
+                    'Ubuntu': 'ubuntu',
+                    'Debian': 'debian',
+                    'Arch': 'arch',
+                    'Manjaro': 'manjaro',
+                    'openSUSE': 'opensuse'
+                }
+                
+                for file in os.listdir(grub_d_path):
+                    file_path = os.path.join(grub_d_path, file)
+                    if os.path.isfile(file_path):
+                        try:
+                            with open(file_path, 'r', errors='ignore') as f:
+                                content = f.read().lower()
+                                for distro_name, pattern in distro_patterns.items():
+                                    if pattern in content and distro_name not in entries:
+                                        entries[distro_name] = idx
+                                        Logger.debug(f"Distro detectada: {distro_name}")
+                                        idx += 1
+                                        break
+                        except:
+                            pass
+                            
+        except Exception as e:
+            Logger.debug(f"Error al escanear /etc/grub.d/: {e}")
+        
+        # Asegurar que siempre hay al menos las entradas de UEFI
+        if 'Windows Boot Manager' not in entries:
+            entries['Windows Boot Manager'] = idx
+            idx += 1
+        if 'UEFI Firmware Settings' not in entries:
+            entries['UEFI Firmware Settings'] = idx
+            idx += 1
+        
+        self.boot_entries = list(entries.keys())
+        Logger.success(f"Se encontraron {len(entries)} entradas de boot total")
+        return entries
     
     def get_boot_entries(self) -> list:
         """Retorna lista de entradas de boot actuales."""
