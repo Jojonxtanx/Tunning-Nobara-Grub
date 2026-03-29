@@ -28,10 +28,12 @@ Una herramienta profesional con interfaz GTK4/Adwaita para personalizar la confi
 Proporcionar a los usuarios de Nobara (y otras distribuciones Linux) una herramienta gráfica eficaz para:
 - ✅ Ajustar el timeout del menú de arranque
 - ✅ Cambiar temas de GRUB
+- ✅ **Reordenar entradas de boot** (Windows, Nobara, Fedora, etc.)
 - ✅ Configurar parámetros del kernel
 - ✅ Habilitar/deshabilitar bootloader features
 - ✅ Crear backups automáticos de configuración
 - ✅ Revertir cambios con historial de versiones
+- ✅ Seleccionar tema claro/oscuro de la interfaz
 
 ### Ventajas
 - **Interfaz moderna**: GTK4/Adwaita para una experiencia nativa en GNOME
@@ -62,6 +64,9 @@ Proporcionar a los usuarios de Nobara (y otras distribuciones Linux) una herrami
 - **Logging persistente** - Archivos de log con timestamps ISO en `~/.nobara-grub-tuner/logs/`
 - **Versionado de configuración** - Snapshots automáticos en `~/.nobara-grub-tuner/versions/`
 - **Detección multi-distro** - Automático con `/etc/os-release`
+- **Detección multi-fuente de boot** - Lee desde grub.cfg + efibootmgr + /etc/grub.d/
+- **Reordenamiento de boot entries** - Reordena visualmente Windows, Nobara, Fedora, etc.
+- **Tema claro/oscuro** - Selector con cambio en tiempo real (AdwStyleManager)
 - **Respaldo automático** - Backup pre-cambios con timestamp
 
 ### Testing
@@ -158,13 +163,20 @@ Una vez abierta la aplicación, verás:
 2. **Sección Apariencia**
    - Selector de temas GRUB
    - Botón para recargar temas
+   - **Selector de tema de la aplicación** (Automático, Claro, Oscuro)
 
-3. **Sección Kernel**
+3. **Sección Orden de Boot** ⭐ NUEVO
+   - Lista visual de todas las opciones de boot disponibles
+   - Windows, Nobara, Fedora, Ubuntu, etc.
+   - Botones ⬆️ Arriba y ⬇️ Abajo para reordenar
+   - Validación en tiempo real
+
+4. **Sección Kernel**
    - Parámetros del kernel
    - Detector automático de UUID de swap
    - Editor de parámetros personalizados
 
-4. **Acciones**
+5. **Acciones**
    - Botón para crear backup
    - Botón para aplicar cambios
    - Historial de cambios
@@ -186,6 +198,9 @@ Una vez abierta la aplicación, verás:
 - ✅ Botones +/- para ajustar timeouts
 - ✅ Autocompletado de parámetros GRUB
 - ✅ Indicadores visuales de estado
+- ✅ **Reordenamiento visual de boot entries** (⬆️⬇️ botones)
+- ✅ **Tema claro/oscuro con cambio en vivo**
+- ✅ **Detección automática de todas las opciones de boot**
 
 ### Fiabilidad 📊
 - ✅ 30+ pruebas unitarias
@@ -482,28 +497,51 @@ python3 -m src.main
 - ✅ Requiere sudo (con confirmación)
 - ✅ Manejo de errores robusto
 
-## Mejoras Futuras Posibles
+## 🎯 Roadmap
 
-- [ ] Interfaz de línea de comandos (CLI)
-- [ ] Perfiles predefinidos de configuración
-- [ ] Vista previa de cambios
-- [ ] Historial de cambios
-- [ ] Soporte para otros distribuidores GRUB
-- [ ] Integración con syslog
+### v2.1 ✨ NUEVO (Actual)
+- ✅ Reordenamiento de boot entries con UI intuitiva
+- ✅ Soporte tema claro/oscuro
+- ✅ Detección multi-fuente de boot (grub.cfg + efibootmgr + /etc/grub.d/)
+- ✅ Mejor detección de distribuciones instaladas
 
-## Cambios de Version 1.0 → 2.0
+### v2.2 (Próximo)
+- [ ] i18n - Soporte para múltiples idiomas
+- [ ] Exportar/Importar configuraciones
+- [ ] Drag-and-drop para reordenar boots
+- [ ] Comparar diferencias entre versiones
 
-| Aspecto | v1.0 | v2.0 |
-|--------|------|------|
-| Arquitectura | Monolítica | Modular |
-| Líneas de código | ~180 | ~600 |
-| Módulos | 1 | 4 |
-| Detección actual | ✗ | ✅ |
-| UUID automático | ✗ | ✅ |
-| Diálogos | ✗ | ✅ |
-| Validación | Mínima | Completa |
-| Logging | ✗ | ✅ |
-| Parámetros avanzados | ✗ | ✅ |
+### v3.0 (Futuro)
+- [ ] Gestor gráfico de entries GRUB
+- [ ] Soporte para UEFI Secure Boot
+- [ ] Integración con Bootupd
+- [ ] Temas del bootloader descargables
+- [ ] CLI (Interface de línea de comandos)
+
+---
+
+## 📊 Comparativa de Versiones
+
+| Aspecto | v1.0 | v2.0 | v2.1 |
+|--------|------|------|------|
+| Arquitectura | Monolítica | Modular | Modular |
+| Framework UI | GTK3 | GTK4 | GTK4 |
+| Líneas de código | ~180 | ~600 | ~1000 |
+| Módulos | 1 | 4 | 7 |
+| Reordenamiento Boot | ✗ | ✗ | ✅ |
+| Tema claro/oscuro | ✗ | ✗ | ✅ |
+| Detección multi-fuente | ✗ | ✗ | ✅ |
+| Detección actual | ✗ | ✅ | ✅ |
+| UUID automático | ✗ | ✅ | ✅ |
+| Diálogos | ✗ | ✅ | ✅ |
+| Validación | Mínima | Completa | Avanzada |
+| Logging | ✗ | ✅ | ✅ |
+| Tests | ✗ | 30+ | 30+ |
+| Parámetros avanzados | ✗ | ✅ | ✅ |
+| Versionado | ✗ | ✅ | ✅ |
+| Distros soportadas | 1 | 7 | 7 |
+
+---
 
 ## Licencia
 
