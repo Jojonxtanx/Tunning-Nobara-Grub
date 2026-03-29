@@ -244,6 +244,64 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         appearance_group.add(action_row)
         content_box.append(appearance_group)
         
+        # Grupo: Orden de Boot
+        boot_order_group = Adw.PreferencesGroup()
+        boot_order_group.set_title("Orden de Boot")
+        boot_order_group.set_description("Reordena las entradas disponibles al iniciar")
+        
+        # Frame para la lista de boots
+        boot_frame = Gtk.Frame()
+        boot_frame.set_margin_start(12)
+        boot_frame.set_margin_end(12)
+        boot_frame.set_margin_top(6)
+        boot_frame.set_margin_bottom(6)
+        
+        boot_list_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        boot_frame.set_child(boot_list_box)
+        
+        # Botones para ordenar
+        boot_buttons_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+        boot_buttons_box.set_homogeneous(True)
+        
+        boot_up_btn = Gtk.Button(label="⬆️ Arriba")
+        boot_up_btn.connect("clicked", self._on_boot_move_up)
+        boot_buttons_box.append(boot_up_btn)
+        self.boot_up_btn = boot_up_btn
+        
+        boot_down_btn = Gtk.Button(label="⬇️ Abajo")
+        boot_down_btn.connect("clicked", self._on_boot_move_down)
+        boot_buttons_box.append(boot_down_btn)
+        self.boot_down_btn = boot_down_btn
+        
+        boot_list_box.append(boot_buttons_box)
+        
+        # ScrolledWindow para la lista de boots
+        boot_scroll = Gtk.ScrolledWindow()
+        boot_scroll.set_min_content_height(150)
+        boot_scroll.set_min_content_width(250)
+        
+        self.boot_list_store = Gtk.ListStore(str)  # Nombre del boot
+        self.boot_selection = None
+        
+        boot_tree = Gtk.TreeView(model=self.boot_list_store)
+        boot_tree.set_headers_visible(False)
+        
+        # Columna para mostrar el nombre del boot
+        renderer = Gtk.CellRendererText()
+        column = Gtk.TreeViewColumn("Boot Entry", renderer, text=0)
+        boot_tree.append_column(column)
+        
+        boot_tree.connect("cursor-changed", self._on_boot_selection_changed)
+        self.boot_tree = boot_tree
+        boot_scroll.set_child(boot_tree)
+        boot_list_box.append(boot_scroll)
+        
+        boot_order_group.add(boot_frame)
+        content_box.append(boot_order_group)
+        
+        # Cargar entradas de boot
+        self._load_boot_entries()
+        
         # Botones de acción
         action_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         action_box.set_homogeneous(True)
@@ -326,6 +384,11 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         theme = self.theme_combo.get_active_text() or "nobara"
         disable_submenu = self.submenu_row.get_active()
         
+        # Obtener nuevo orden de boots
+        new_boot_order = []
+        for row in self.boot_list_store:
+            new_boot_order.append(row[0])
+        
         is_valid, error_msg = ValidationUtils.validate_timeout(timeout)
         if not is_valid:
             self._show_error_dialog("❌ Timeout inválido", error_msg)
@@ -341,18 +404,18 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
             "Confirmar cambios en GRUB",
             "¿Estás seguro de que deseas aplicar estos cambios?\n"
             "Se creará un backup automático antes de aplicar.",
-            details=f"Timeout: {timeout}s\nTema: {theme}\nSubmenu: {'Deshabilitado' if disable_submenu else 'Habilitado'}"
+            details=f"Timeout: {timeout}s\nTema: {theme}\nSubmenu: {'Deshabilitado' if disable_submenu else 'Habilitado'}\nOrden de boots: {', '.join(new_boot_order[:3])}{'...' if len(new_boot_order) > 3 else ''}"
         )
         
         def on_response(dialog, response):
             if response == "ok":
-                self._apply_changes_async(timeout, theme, disable_submenu)
+                self._apply_changes_async(timeout, theme, disable_submenu, new_boot_order)
             dialog.close()
         
         dialog.connect("response", on_response)
         dialog.present()
     
-    def _apply_changes_async(self, timeout, theme, disable_submenu):
+    def _apply_changes_async(self, timeout, theme, disable_submenu, boot_order=None):
         """Aplica cambios de forma asincrónica."""
         self.is_applying = True
         self.apply_btn.set_sensitive(False)
@@ -372,6 +435,17 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
                 backup_success, backup_path = self.grub_config.create_backup()
                 if backup_success:
                     Logger.success(f"Backup creado: {backup_path}")
+                
+                # Aplicar nuevo orden de boots si cambió
+                if boot_order:
+                    Logger.info("Aplicando nuevo orden de boots...")
+                    from .config import BootEntryManager
+                    boot_manager = BootEntryManager()
+                    order_success, order_msg = boot_manager.reorder_entries(boot_order)
+                    if order_success:
+                        Logger.success(order_msg)
+                    else:
+                        Logger.warning(f"No se pudo reordenar boots: {order_msg}")
                 
                 Logger.info("Aplicando configuración GRUB...")
                 success, message = self.grub_config.apply_config(config_content)
@@ -412,6 +486,81 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         """Muestra diálogo de error."""
         dialog = InfoDialog(self, title, message, details, is_error=True)
         dialog.present()
+    
+    def _load_boot_entries(self):
+        """Carga las entradas de boot disponibles."""
+        try:
+            from .config import BootEntryManager
+            
+            boot_manager = BootEntryManager()
+            entries = boot_manager.get_boot_entries()
+            
+            self.boot_list_store.clear()
+            for entry in entries:
+                self.boot_list_store.append([entry])
+            
+            if len(entries) > 0:
+                self.boot_tree.set_cursor(Gtk.TreePath.new_first())
+                Logger.debug(f"Se cargaron {len(entries)} entradas de boot")
+            else:
+                Logger.warning("No se encontraron entradas de boot")
+                
+        except Exception as e:
+            Logger.error(f"Error al cargar boot entries: {e}")
+            self._show_error_dialog("Error", "No se pudieron cargar las entradas de boot")
+    
+    def _on_boot_selection_changed(self, tree):
+        """Callback cuando cambia la selección de boot."""
+        selection = tree.get_selection()
+        if selection:
+            model, iter = selection.get_selected()
+            if iter:
+                self.boot_selection = iter
+                # Habilitar/deshabilitar botones según posición
+                index = model.get_path(iter).get_indices()[0]
+                self.boot_up_btn.set_sensitive(index > 0)
+                self.boot_down_btn.set_sensitive(index < len(model) - 1)
+                return
+        
+        self.boot_selection = None
+        self.boot_up_btn.set_sensitive(False)
+        self.boot_down_btn.set_sensitive(False)
+    
+    def _on_boot_move_up(self, btn):
+        """Mueve la entrada de boot seleccionada hacia arriba."""
+        if not self.boot_selection:
+            return
+        
+        model = self.boot_list_store
+        path = model.get_path(self.boot_selection)
+        index = path.get_indices()[0]
+        
+        if index > 0:
+            # Intercambiar con el anterior
+            prev_iter = model.get_iter(index - 1)
+            model.swap(self.boot_selection, prev_iter)
+            
+            # Mantener selección
+            self.boot_tree.set_cursor(Gtk.TreePath.new_from_indices([index - 1]))
+            Logger.debug(f"Boot movido hacia arriba (índice {index} → {index - 1})")
+    
+    def _on_boot_move_down(self, btn):
+        """Mueve la entrada de boot seleccionada hacia abajo."""
+        if not self.boot_selection:
+            return
+        
+        model = self.boot_list_store
+        path = model.get_path(self.boot_selection)
+        index = path.get_indices()[0]
+        
+        if index < len(model) - 1:
+            # Intercambiar con el siguiente
+            next_iter = model.get_iter(index + 1)
+            model.swap(self.boot_selection, next_iter)
+            
+            # Mantener selección
+            self.boot_tree.set_cursor(Gtk.TreePath.new_from_indices([index + 1]))
+            Logger.debug(f"Boot movido hacia abajo (índice {index} → {index + 1})")
 
 
 class NobaraGrubTunerApp(Adw.Application):

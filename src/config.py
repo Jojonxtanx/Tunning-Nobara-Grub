@@ -401,3 +401,163 @@ class GrubConfig:
                 os.remove(temp_path)
             except:
                 pass
+
+
+class BootEntryManager:
+    """Gestor de orden de entradas de boot en GRUB."""
+    
+    def __init__(self):
+        self.distro_info = get_distro_info()
+        self.boot_entries = []
+        self.grub_cfg_path = f"{self.distro_info.get_grub_dir()}/grub.cfg"
+        self.custom_entry_order_file = "/etc/grub.d/06_custom_order"
+        
+    def detect_boot_entries(self) -> Dict[str, str]:
+        """
+        Detecta todas las entradas de boot disponibles.
+        
+        Returns:
+            Dict con {nombre: indices_grub}
+        """
+        entries = {}
+        
+        try:
+            with open(self.grub_cfg_path, 'r') as f:
+                content = f.read()
+            
+            # Buscar líneas menuentry
+            pattern = r"menuentry\s+['\"]([^'\"]+)['\"]"
+            matches = re.finditer(pattern, content)
+            
+            for idx, match in enumerate(matches):
+                entry_name = match.group(1)
+                if entry_name:
+                    entries[entry_name] = idx
+                    Logger.debug(f"Boot entry detectado: {entry_name} (índice {idx})")
+            
+            self.boot_entries = list(entries.keys())
+            Logger.success(f"Se encontraron {len(entries)} entradas de boot")
+            return entries
+            
+        except FileNotFoundError:
+            Logger.error(f"Archivo no encontrado: {self.grub_cfg_path}")
+            return {}
+        except Exception as e:
+            Logger.error(f"Error al detectar boot entries: {e}")
+            return {}
+    
+    def get_boot_entries(self) -> list:
+        """Retorna lista de entradas de boot actuales."""
+        if not self.boot_entries:
+            self.detect_boot_entries()
+        return self.boot_entries.copy()
+    
+    def reorder_entries(self, new_order: list) -> Tuple[bool, str]:
+        """
+        Reordena las entradas de boot.
+        
+        Args:
+            new_order: Lista con el nuevo orden de entradas
+            
+        Returns:
+            (éxito, mensaje)
+        """
+        # Validar que todas las entradas existen
+        for entry in new_order:
+            if entry not in self.boot_entries:
+                return False, f"Entrada de boot no válida: {entry}"
+        
+        try:
+            # Leer grub.cfg actual
+            with open(self.grub_cfg_path, 'r') as f:
+                original_content = f.read()
+            
+            # Extraer todas las entradas de boot
+            boot_entries_content = {}
+            pattern = r"(menuentry\s+['\"]([^'\"]+)['\"]\s+[^{]*\{[^}]*\})"
+            
+            for match in re.finditer(pattern, original_content, re.DOTALL):
+                full_entry = match.group(1)
+                entry_name = match.group(2)
+                boot_entries_content[entry_name] = full_entry
+            
+            # Guardar el nuevo orden en un archivo custom
+            custom_script = self._generate_custom_order_script(new_order)
+            
+            result = subprocess.run(
+                ["sudo", "tee", self.custom_entry_order_file],
+                input=custom_script,
+                capture_output=True,
+                text=True,
+                timeout=10
+            )
+            
+            if result.returncode != 0:
+                return False, "Error al escribir el archivo custom"
+            
+            # Hacer ejecutable
+            subprocess.run(["sudo", "chmod", "+x", self.custom_entry_order_file])
+            
+            Logger.success(f"Orden de boot reordenado: {', '.join(new_order)}")
+            return True, "✅ Orden de boot reordenado correctamente"
+            
+        except Exception as e:
+            Logger.error(f"Error al reordenar boot entries: {e}")
+            return False, f"❌ Error: {str(e)}"
+    
+    def _generate_custom_order_script(self, order: list) -> str:
+        """Genera script custom para /etc/grub.d/06_custom_order."""
+        script = """#!/bin/bash
+# Custom boot order script
+# Auto-generado por Nobara GRUB Tuner
+
+which gettext >/dev/null 2>&1 || gettext() { echo "$@"; }
+
+CLASS="--class gnu-linux --class os"
+
+"""
+        
+        for idx, entry in enumerate(order):
+            script += f'menuentry_id_option="--id {entry.lower().replace(" ", "_")}"\\n'
+        
+        return script
+    
+    def set_default_entry(self, entry_name: str) -> Tuple[bool, str]:
+        """
+        Establece la entrada de boot por defecto.
+        
+        Args:
+            entry_name: Nombre de la entrada a establecer como predeterminada
+            
+        Returns:
+            (éxito, mensaje)
+        """
+        grub_config = GrubConfig()
+        
+        # Validar que la entrada existe
+        if entry_name not in self.boot_entries:
+            return False, f"Entrada de boot no válida: {entry_name}"
+        
+        try:
+            # Buscar el índice de la entrada
+            entries = self.detect_boot_entries()
+            entry_index = entries.get(entry_name)
+            
+            if entry_index is None:
+                return False, "Entrada no encontrada"
+            
+            # Modificar GRUB_DEFAULT
+            grub_config.config['GRUB_DEFAULT'] = str(entry_index)
+            
+            # Guardar configuración
+            config_content = grub_config.generate_config()
+            success, message = grub_config.apply_config(config_content)
+            
+            if success:
+                Logger.success(f"Entrada por defecto establecida: {entry_name}")
+            
+            return success, message
+            
+        except Exception as e:
+            Logger.error(f"Error al establecer entrada predeterminada: {e}")
+            return False, f"❌ Error: {str(e)}"
