@@ -411,13 +411,13 @@ class BootEntryManager:
         self.boot_entries = []
         self.grub_cfg_path = f"{self.distro_info.get_grub_dir()}/grub.cfg"
         self.custom_entry_order_file = "/etc/grub.d/06_custom_order"
-        
+    
     def detect_boot_entries(self) -> Dict[str, str]:
         """
-        Detecta todas las entradas de boot disponibles.
+        Detecta todas las entradas de boot disponibles en grub.cfg.
         
         Returns:
-            Dict con {nombre: indices_grub}
+            Dict con {nombre: indice}
         """
         entries = {}
         
@@ -425,15 +425,20 @@ class BootEntryManager:
             with open(self.grub_cfg_path, 'r') as f:
                 content = f.read()
             
-            # Buscar líneas menuentry
-            pattern = r"menuentry\s+['\"]([^'\"]+)['\"]"
-            matches = re.finditer(pattern, content)
+            # Patrón más robusto para capturar menuentry
+            # Captura: menuentry "nombre" o menuentry 'nombre'
+            pattern = r"menuentry\s+(?:['\"]([^'\"]+)['\"]|([^\{]+?)\()"
             
-            for idx, match in enumerate(matches):
-                entry_name = match.group(1)
-                if entry_name:
+            idx = 0
+            for match in re.finditer(pattern, content):
+                # Capturar el texto del nombre (grupo 1 o 2)
+                entry_name = match.group(1) if match.group(1) else match.group(2)
+                entry_name = entry_name.strip() if entry_name else f"Entry {idx}"
+                
+                if entry_name and entry_name not in entries:
                     entries[entry_name] = idx
-                    Logger.debug(f"Boot entry detectado: {entry_name} (índice {idx})")
+                    Logger.debug(f"Boot entry detectado: {entry_name}")
+                    idx += 1
             
             self.boot_entries = list(entries.keys())
             Logger.success(f"Se encontraron {len(entries)} entradas de boot")

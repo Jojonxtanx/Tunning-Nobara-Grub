@@ -175,7 +175,7 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         behavior_group = Adw.PreferencesGroup()
         behavior_group.set_title("Comportamiento")
         
-        # Crear SpinRow con Adjustment para timeout
+        # Crear SpinButton para timeout
         timeout_adjustment = Gtk.Adjustment(
             value=int(self.grub_config.get_current_timeout()),
             lower=0,
@@ -186,10 +186,17 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         )
         timeout_adjustment.connect("value-changed", self._on_timeout_changed)
         
-        timeout_row = Adw.SpinRow.new(timeout_adjustment)
-        timeout_row.set_title("Timeout del menú GRUB")
-        timeout_row.set_subtitle("Segundos antes de arrancar automáticamente")
-        self.timeout_row = timeout_row
+        timeout_spin = Gtk.SpinButton(adjustment=timeout_adjustment)
+        timeout_spin.set_numeric(True)
+        timeout_spin.set_size_request(80, -1)
+        
+        timeout_row = Adw.ActionRow()
+        timeout_row.set_title("Timeout del menú GRUB (segundos)")
+        
+        # Agregar el spinner como child directo
+        timeout_row.add_suffix(timeout_spin)
+        
+        self.timeout_row = timeout_spin
         self.timeout_adjustment = timeout_adjustment
         behavior_group.add(timeout_row)
         
@@ -242,6 +249,21 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         action_row = Adw.ActionRow()
         action_row.set_child(theme_box)
         appearance_group.add(action_row)
+        
+        # Selector de tema de la aplicación (Claro/Oscuro)
+        app_theme_combo = Gtk.ComboBoxText()
+        app_theme_combo.append_text("Automático")
+        app_theme_combo.append_text("Tema Claro")
+        app_theme_combo.append_text("Tema Oscuro")
+        app_theme_combo.set_active(0)
+        app_theme_combo.connect("changed", self._on_app_theme_changed)
+        
+        app_theme_row = Adw.ActionRow()
+        app_theme_row.set_title("Tema de la Aplicación")
+        app_theme_row.add_suffix(app_theme_combo)
+        self.app_theme_combo = app_theme_combo
+        self.app_theme_row = app_theme_row
+        appearance_group.add(app_theme_row)
         content_box.append(appearance_group)
         
         # Grupo: Orden de Boot
@@ -476,6 +498,21 @@ class NobaraGrubTunerWindow(Adw.ApplicationWindow):
         self.is_applying = False
         self.apply_btn.set_sensitive(True)
         self._show_error_dialog("❌ Error", message, logs)
+    
+    def _on_app_theme_changed(self, combo):
+        """Cambia el tema de la aplicación (claro/oscuro)."""
+        active = combo.get_active()
+        style_manager = Adw.StyleManager.get_default()
+        
+        if active == 0:  # Automático
+            style_manager.set_color_scheme(Adw.ColorScheme.DEFAULT)
+            Logger.debug("Tema automático activado")
+        elif active == 1:  # Claro
+            style_manager.set_color_scheme(Adw.ColorScheme.FORCE_LIGHT)
+            Logger.debug("Tema claro activado")
+        elif active == 2:  # Oscuro
+            style_manager.set_color_scheme(Adw.ColorScheme.FORCE_DARK)
+            Logger.debug("Tema oscuro activado")
     
     def _show_info_dialog(self, title, message, details=""):
         """Muestra diálogo de información."""
